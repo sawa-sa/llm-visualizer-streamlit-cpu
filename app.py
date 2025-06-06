@@ -2,10 +2,7 @@ import streamlit as st
 import torch
 import torch.nn.functional as F
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
-import matplotlib
 import matplotlib.pyplot as plt
-
-# matplotlib.rcParams["font.family"] = "IPAexGothic"
 
 # ——————————————
 # セッション状態の初期化
@@ -14,8 +11,6 @@ if "input_ids" not in st.session_state:
     st.session_state.input_ids = None
 if "generated_tokens" not in st.session_state:
     st.session_state.generated_tokens = []
-if "mode" not in st.session_state:
-    st.session_state.mode = "ステップバイステップ"
 if "steps" not in st.session_state:
     # 各ステップごとのデータを保持するリスト
     # 要素は dict: {"topk_tokens","topk_values","chosen_id","attn_avg","tokens_all"}
@@ -38,7 +33,7 @@ def load_model():
 
 model, tokenizer = load_model()
 
-st.title("🔍 GPT-2 可視化デモ：2モード切替＋ステップナビゲーション")
+st.title("🔍 GPT-2 可視化デモ：ステップバイステップのみ + Temperature=0対応")
 
 # ——————————————
 # プロンプト選択＆入力欄
@@ -69,45 +64,20 @@ prompt = st.text_input(
 # ユーザーが直接編集したら上書き
 st.session_state.prompt = prompt
 
-temperature = st.slider("Temperature", 0.1, 2.0, 0.7, 0.1)
+temperature = st.slider("Temperature", 0.0, 2.0, 0.7, 0.1)
 
-# モードごとの設定
-mode = st.radio(
-    "生成モードを選択してください",
-    ("ステップバイステップ", "まとめて生成")
+top_p = st.slider(
+    "Top-p (Nucleus sampling)", 0.0, 1.0, 1.0, 0.01,
+    help="Top-p < 1.0 のときは Top-p サンプリング、Top-p = 1.0 のときは Top-K サンプリング"
 )
-st.session_state.mode = mode
-
-if mode == "ステップバイステップ":
-    top_p = st.slider(
-        "Top-p (Nucleus sampling)", 0.0, 1.0, 1.0, 0.01,
-        help="Top-p < 1.0 のときは Top-p サンプリング、Top-p = 1.0 のときは Top-K サンプリング"
-    )
-    top_k = st.slider(
-        "Top-K sampling", 1, 50, 10, 1,
-        help="Top-p = 1.0 のときのみ有効", disabled=(top_p < 1.0)
-    )
-    if top_p < 1.0:
-        st.markdown("⚠️ Top-K は現在無効です（Top-p 有効）")
-    else:
-        st.markdown("⚠️ Top-p は現在無効です（Top-K 有効）")
+top_k = st.slider(
+    "Top-K sampling", 1, 50, 10, 1,
+    help="Top-p = 1.0 のときのみ有効", disabled=(top_p < 1.0)
+)
+if top_p < 1.0:
+    st.markdown("⚠️ Top-K は現在無効です（Top-p 有効）")
 else:
-    gen_count = st.slider(
-        "まとめて生成するトークン数", 1, 50, 20, 1,
-        help="生成したいトークン数を指定"
-    )
-    top_p = st.slider(
-        "Top-p (Nucleus sampling)", 0.0, 1.0, 0.9, 0.01,
-        help="まとめて生成時の Top-p 設定"
-    )
-    top_k = st.slider(
-        "Top-K sampling", 1, 50, 40, 1,
-        help="まとめて生成時の Top-K 設定（Top-p = 1.0 のとき有効）", disabled=(top_p < 1.0)
-    )
-    if top_p < 1.0:
-        st.markdown("⚠️ まとめて生成では Top-K は無効です（Top-p 有効）")
-    else:
-        st.markdown("⚠️ まとめて生成では Top-p は無効です（Top-K 有効）")
+    st.markdown("⚠️ Top-p は現在無効です（Top-K 有効）")
 
 st.markdown("---")
 
@@ -126,14 +96,22 @@ if st.session_state.input_ids is None:
 chart_placeholder = st.empty()
 attention_placeholder = st.empty()
 
-if mode == "ステップバイステップ":
-    # ステップ単位生成ボタン
-    if st.button("▶️ トークン生成"):
-        input_ids = st.session_state.input_ids
-        with torch.no_grad():
-            outputs = model(input_ids, output_attentions=True)
-            logits = outputs.logits[:, -1, :] / temperature
-            probs = F.softmax(logits, dim=-1)
+# ステップバイステップ生成
+if st.button("▶️ トークン生成"):
+    input_ids = st.session_state.input_ids
+    with torch.no_grad():
+        outputs = model(input_ids, output_attentions=True)
+        raw_logits = outputs.logits[:, -1, :]
+
+        # Temperature=0 → 完全に Greedy
+        if temperature < 1e-5:
+            # raw_logits をそのまま使って argmax
+            next_token = torch.argmax(raw_logits, dim=-1, keepdim=True)
+            probs = None
+        else:
+            # 温度スケーリング→Softmax
+            scaled_logits = raw_logits / temperature
+            probs = F.softmax(scaled_logits, dim=-1)
 
             # Top-p または Top-K でフィルタリング
             if top_p < 1.0:
@@ -151,180 +129,80 @@ if mode == "ステップバイステップ":
 
             filtered_probs = filtered_probs / filtered_probs.sum(dim=-1, keepdim=True)
             next_token = torch.multinomial(filtered_probs, num_samples=1)
-            st.session_state.input_ids = torch.cat([input_ids, next_token], dim=1)
-            st.session_state.generated_tokens.append(next_token.item())
 
-            # Top-K（可視化用として常に Top-K を取得）
+        st.session_state.input_ids = torch.cat([input_ids, next_token], dim=1)
+        st.session_state.generated_tokens.append(next_token.item())
+
+        # Top-K（可視化用として常に Top-K を取得）
+        if probs is not None:
             topk_probs, topk_indices = torch.topk(probs, top_k)
-            topk_tokens = [tokenizer.decode([i]).strip() for i in topk_indices[0]]
-            topk_values = topk_probs[0].tolist()
-            chosen_id = next_token.item()
-
-            # Attention 行列（最終層の平均）
-            attn = outputs.attentions[-1][0]  # shape: [n_head, seq_len, seq_len]
-            attn_avg = attn.mean(dim=0).cpu().numpy()
-            tokens_all = [tokenizer.decode([i]).strip() for i in st.session_state.input_ids[0].tolist()]
-
-            # ステップデータを保存
-            step_data = {
-                "topk_tokens": topk_tokens,
-                "topk_values": topk_values,
-                "topk_ids": topk_indices[0].tolist(),
-                "chosen_id": chosen_id,
-                "attn_avg": attn_avg,
-                "tokens_all": tokens_all,
-            }
-            st.session_state.steps.append(step_data)
-            st.session_state.step_index = len(st.session_state.steps) - 1
-
-    # ステップナビゲーション
-    if st.session_state.steps:
-        idx = st.session_state.step_index
-        step = st.session_state.steps[idx]
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col1:
-            prev_disabled = idx == 0
-            if st.button("← 前へ", disabled=prev_disabled) and idx > 0:
-                st.session_state.step_index = idx - 1
-        with col3:
-            next_disabled = idx == len(st.session_state.steps) - 1
-            if st.button("次へ →", disabled=next_disabled) and idx < len(st.session_state.steps) - 1:
-                st.session_state.step_index = idx + 1
-        st.markdown(f"**Step {idx+1}/{len(st.session_state.steps)}**")
-
-        # グラフタイトルを動的に切り替え
-        if top_p < 1.0:
-            title = f"Step {idx+1}: Next Token Candidates (Top-p)"
         else:
-            title = f"Step {idx+1}: Next Token Candidates (Top-K)"
+            # Temperature=0 では raw_logits から Top-K
+            topk_probs, topk_indices = torch.topk(raw_logits, top_k)
+        topk_tokens = [tokenizer.decode([i]).strip() for i in topk_indices[0]]
+        topk_values = (topk_probs[0].tolist() if probs is not None else topk_probs[0].tolist())
+        chosen_id = next_token.item()
 
-        # 分布棒グラフの再描画
-        fig, ax = plt.subplots()
-        colors = [
-            "red" if tok_id == step["chosen_id"] else "gray"
-            for tok_id in step["topk_ids"]
-        ]
-        ax.barh(step["topk_tokens"][::-1], step["topk_values"][::-1], color=colors[::-1])
-        ax.set_title(title)
-        ax.set_xlabel("Probability")
-        ax.invert_yaxis()
-        chart_placeholder.pyplot(fig)
+        # Attention 行列（最終層の平均）
+        attn = outputs.attentions[-1][0]  # shape: [n_head, seq_len, seq_len]
+        attn_avg = attn.mean(dim=0).cpu().numpy()
+        tokens_all = [tokenizer.decode([i]).strip() for i in st.session_state.input_ids[0].tolist()]
 
-        # Attention ヒートマップ再描画
-        fig2, ax2 = plt.subplots(figsize=(6, 5))
-        im = ax2.imshow(step["attn_avg"], cmap="viridis", vmin=0.0, vmax=0.2)
-        ax2.set_xticks(range(len(step["tokens_all"])))
-        ax2.set_xticklabels(step["tokens_all"], rotation=90, fontsize=6)
-        ax2.set_yticks(range(len(step["tokens_all"])))
-        ax2.set_yticklabels(step["tokens_all"], fontsize=6)
-        ax2.set_title(f"Step {idx+1}: Attention Map")
-        fig2.colorbar(im, ax=ax2)
-        attention_placeholder.pyplot(fig2)
+        # ステップデータを保存
+        step_data = {
+            "topk_tokens": topk_tokens,
+            "topk_values": topk_values,
+            "topk_ids": topk_indices[0].tolist(),
+            "chosen_id": chosen_id,
+            "attn_avg": attn_avg,
+            "tokens_all": tokens_all,
+        }
+        st.session_state.steps.append(step_data)
+        st.session_state.step_index = len(st.session_state.steps) - 1
 
-else:
-    if st.button("▶️ まとめて生成"):
-        input_ids = st.session_state.input_ids
-        with torch.no_grad():
-            if top_p < 1.0:
-                # Top-p サンプリング
-                generated_ids = model.generate(
-                    input_ids,
-                    max_new_tokens=gen_count,
-                    do_sample=True,
-                    top_p=top_p,
-                    temperature=temperature,
-                    pad_token_id=tokenizer.eos_token_id
-                )
-            else:
-                # Top-K サンプリング
-                generated_ids = model.generate(
-                    input_ids,
-                    max_new_tokens=gen_count,
-                    do_sample=True,
-                    top_k=top_k,
-                    temperature=temperature,
-                    pad_token_id=tokenizer.eos_token_id
-                )
+# ステップナビゲーション
+if st.session_state.steps:
+    idx = st.session_state.step_index
+    step = st.session_state.steps[idx]
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        prev_disabled = idx == 0
+        if st.button("← 前へ", disabled=prev_disabled) and idx > 0:
+            st.session_state.step_index = idx - 1
+    with col3:
+        next_disabled = idx == len(st.session_state.steps) - 1
+        if st.button("次へ →", disabled=next_disabled) and idx < len(st.session_state.steps) - 1:
+            st.session_state.step_index = idx + 1
+    st.markdown(f"**Step {idx+1}/{len(st.session_state.steps)}**")
 
-        # 生成部分をリストで抽出
-        new_ids = generated_ids[0][input_ids.size(1):].tolist()
-        seq = input_ids
-        st.session_state.steps = []
+    # グラフタイトルを動的に切り替え
+    if top_p < 1.0:
+        title = f"Step {idx+1}: Next Token Candidates (Top-p)"
+    else:
+        title = f"Step {idx+1}: Next Token Candidates (Top-K)"
 
-        # 各生成ステップごとにデータを保存
-        for idx, tok_id in enumerate(new_ids):
-            with torch.no_grad():
-                outputs = model(seq, output_attentions=True)
-                logits = outputs.logits[:, -1, :] / temperature
-                probs = F.softmax(logits, dim=-1)
+    # 分布棒グラフの再描画
+    fig, ax = plt.subplots()
+    colors = [
+        "red" if tok_id == step["chosen_id"] else "gray"
+        for tok_id in step["topk_ids"]
+    ]
+    ax.barh(step["topk_tokens"][::-1], step["topk_values"][::-1], color=colors[::-1])
+    ax.set_title(title)
+    ax.set_xlabel("Probability or Logit Score")
+    ax.invert_yaxis()
+    chart_placeholder.pyplot(fig)
 
-                topk_probs, topk_indices = torch.topk(probs, top_k)
-                topk_tokens = [tokenizer.decode([i]).strip() for i in topk_indices[0]]
-                topk_values = topk_probs[0].tolist()
-                topk_ids = topk_indices[0].tolist()
-                chosen_id = tok_id
-
-                attn = outputs.attentions[-1][0]
-                attn_avg = attn.mean(dim=0).cpu().numpy()
-                tokens_all = [tokenizer.decode([i]).strip() for i in seq[0].tolist()]
-
-                step_data = {
-                    "topk_tokens": topk_tokens,
-                    "topk_values": topk_values,
-                    "topk_ids": topk_ids,
-                    "chosen_id": chosen_id,
-                    "attn_avg": attn_avg,
-                    "tokens_all": tokens_all,
-                }
-                st.session_state.steps.append(step_data)
-                seq = torch.cat([seq, torch.tensor([[tok_id]])], dim=1)
-
-        st.session_state.input_ids = seq.clone()
-        st.session_state.step_index = 0
-
-    # まとめて生成後のステップナビゲーション
-    if st.session_state.steps:
-        idx = st.session_state.step_index
-        step = st.session_state.steps[idx]
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col1:
-            prev_disabled = idx == 0
-            if st.button("← 前へ", disabled=prev_disabled) and idx > 0:
-                st.session_state.step_index = idx - 1
-        with col3:
-            next_disabled = idx == len(st.session_state.steps) - 1
-            if st.button("次へ →", disabled=next_disabled) and idx < len(st.session_state.steps) - 1:
-                st.session_state.step_index = idx + 1
-        st.markdown(f"**Step {idx+1}/{len(st.session_state.steps)}**")
-
-        # グラフタイトルを動的に切り替え
-        if top_p < 1.0:
-            title = f"Step {idx+1}: Next Token Candidates (Top-p)"
-        else:
-            title = f"Step {idx+1}: Next Token Candidates (Top-K)"
-
-        # 分布棒グラフの再描画
-        fig, ax = plt.subplots()
-        colors = [
-            "red" if tok_id == step["chosen_id"] else "gray"
-            for tok_id in step["topk_ids"]
-        ]
-        ax.barh(step["topk_tokens"][::-1], step["topk_values"][::-1], color=colors[::-1])
-        ax.set_title(title)
-        ax.set_xlabel("Probability")
-        ax.invert_yaxis()
-        chart_placeholder.pyplot(fig)
-
-        # Attention ヒートマップ再描画
-        fig2, ax2 = plt.subplots(figsize=(6, 5))
-        im = ax2.imshow(step["attn_avg"], cmap="viridis", vmin=0.0, vmax=0.2)
-        ax2.set_xticks(range(len(step["tokens_all"])))
-        ax2.set_xticklabels(step["tokens_all"], rotation=90, fontsize=6)
-        ax2.set_yticks(range(len(step["tokens_all"])))
-        ax2.set_yticklabels(step["tokens_all"], fontsize=6)
-        ax2.set_title(f"Step {idx+1}: Attention Map")
-        fig2.colorbar(im, ax=ax2)
-        attention_placeholder.pyplot(fig2)
+    # Attention ヒートマップ再描画
+    fig2, ax2 = plt.subplots(figsize=(6, 5))
+    im = ax2.imshow(step["attn_avg"], cmap="viridis", vmin=0.0, vmax=0.2)
+    ax2.set_xticks(range(len(step["tokens_all"])))
+    ax2.set_xticklabels(step["tokens_all"], rotation=90, fontsize=6)
+    ax2.set_yticks(range(len(step["tokens_all"])))
+    ax2.set_yticklabels(step["tokens_all"], fontsize=6)
+    ax2.set_title(f"Step {idx+1}: Attention Map")
+    fig2.colorbar(im, ax=ax2)
+    attention_placeholder.pyplot(fig2)
 
 # 最終出力文
 st.markdown("### 🧠 最終的な出力文")
