@@ -1,8 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import List, Dict
+from typing import List
 
-def plot_topk(tokens: List[str], values: List[float], ids: List[int], chosen: int, top_k: int, temperature: float):
+def plot_topk(
+    tokens: List[str],
+    values: List[float],
+    ids: List[int],
+    chosen: int,
+    top_k: int,
+    temperature: float,
+):
     fig, ax = plt.subplots(figsize=(6, 4))
     colors = ["#e63946" if i == chosen else "#457b9d" for i in ids]
     ax.barh(tokens[::-1], values[::-1], color=list(reversed(colors)))
@@ -19,8 +26,36 @@ def plot_topk(tokens: List[str], values: List[float], ids: List[int], chosen: in
         ax.set_xlim(mn - abs(mn) * 0.1, mx + abs(mx) * 0.1)
     return fig
 
-
 def plot_attention(attn: np.ndarray, tokens: List[str]):
+    """
+    Attention ヒートマップを出力し、各セルに値を数値で注釈する
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+    n = attn.shape[0]
+    # ヒートマップ
+    im = ax.imshow(attn, cmap="inferno", aspect='auto', vmin=0.0, vmax=attn.max())
+    ax.set_title("Attention Map (Last Layer Avg)", pad=12)
+    ax.set_xlabel("Key Position")
+    ax.set_ylabel("Query Position")
+    # 軸ラベル
+    ax.set_xticks(np.arange(n)); ax.set_yticks(np.arange(n))
+    ax.set_xticklabels(tokens, rotation=90, fontsize=8)
+    ax.set_yticklabels(tokens, fontsize=8)
+    # セルごとに数値を注釈
+    for i in range(n):
+        for j in range(n):
+            weight = attn[i, j]
+            color = "white" if weight > (attn.max() * 0.5) else "black"
+            ax.text(j, i, f"{weight:.2f}", ha='center', va='center', fontsize=6, color=color)
+    # グリッド線
+    ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
+    ax.grid(which='minor', color='white', linestyle='-', linewidth=0.5)
+    # カラーバー
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("Attention Weight", rotation=270, labelpad=15)
+    plt.tight_layout()
+    return fig
     fig, ax = plt.subplots(figsize=(6, 6))
     n = attn.shape[0]
     im = ax.imshow(attn, cmap="inferno", aspect='auto', vmin=0.0, vmax=attn.max())
