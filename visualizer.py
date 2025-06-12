@@ -28,50 +28,57 @@ def plot_topk(
 
 def plot_attention(attn: np.ndarray, tokens: List[str]):
     """
-    Attention ヒートマップを出力し、各セルに値を数値で注釈する
+    Attention ヒートマップ:
+    正方形表示し、右上三角部分（j >= i）を灰色で置き換え、
+    左下は元の注意重みをそのまま表示、新トークン行（最後の行）をハイライト
     """
-    fig, ax = plt.subplots(figsize=(6, 6))
     n = attn.shape[0]
-    # ヒートマップ
-    im = ax.imshow(attn, cmap="inferno", aspect='auto', vmin=0.0, vmax=attn.max())
-    ax.set_title("Attention Map (Last Layer Avg)", pad=12)
-    ax.set_xlabel("Key Position")
-    ax.set_ylabel("Query Position")
-    # 軸ラベル
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_aspect('equal')
+
+    # マスク領域: j >= i（上三角+対角線）
+    mask = np.triu(np.ones((n, n)), k=1).astype(bool)
+
+    # データをマスク
+    data = np.ma.array(attn, mask=mask)
+
+    # カラーマップ設定: bad 値（マスク部分）を灰色に
+    cmap = plt.cm.get_cmap('inferno').copy()
+    cmap.set_bad(color='lightgray')
+
+    # マスク処理したデータを描画
+    im = ax.imshow(data, cmap=cmap, vmin=attn.min(), vmax=attn.max(), interpolation='nearest')
+
+    # 軸ラベルとタイトル
+    ax.set_title('Attention Map (Last Layer Avg)', pad=12)
+    ax.set_xlabel('Key Position')
+    ax.set_ylabel('Query Position')
     ax.set_xticks(np.arange(n)); ax.set_yticks(np.arange(n))
     ax.set_xticklabels(tokens, rotation=90, fontsize=8)
     ax.set_yticklabels(tokens, fontsize=8)
-    # セルごとに数値を注釈
+
+    # 注釈（マスク部分除外）
     for i in range(n):
         for j in range(n):
+            if mask[i, j]:
+                continue
             weight = attn[i, j]
-            color = "white" if weight > (attn.max() * 0.5) else "black"
-            ax.text(j, i, f"{weight:.2f}", ha='center', va='center', fontsize=6, color=color)
-    # グリッド線
+            color = 'white' if weight > (attn.max() * 0.5) else 'black'
+            ax.text(j, i, f'{weight:.2f}', ha='center', va='center', fontsize=6, color=color)
+
+    # 新トークン行ハイライト
+    new_idx = n - 1
+    rect = plt.Rectangle((-0.5, new_idx - 0.5), n, 1, fill=False, edgecolor='cyan', lw=2)
+    ax.add_patch(rect)
+
+    # 軽いグリッド線
     ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
     ax.grid(which='minor', color='white', linestyle='-', linewidth=0.5)
+
     # カラーバー
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label("Attention Weight", rotation=270, labelpad=15)
-    plt.tight_layout()
-    return fig
-    fig, ax = plt.subplots(figsize=(6, 6))
-    n = attn.shape[0]
-    im = ax.imshow(attn, cmap="inferno", aspect='auto', vmin=0.0, vmax=attn.max())
-    ax.set_title("Attention Map (Last Layer Avg)", pad=12)
-    ax.set_xlabel("Key Position")
-    ax.set_ylabel("Query Position")
-    ax.set_xticks(np.arange(n)); ax.set_yticks(np.arange(n))
-    ax.set_xticklabels(tokens, rotation=90, fontsize=8)
-    ax.set_yticklabels(tokens, fontsize=8)
-    ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
-    ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
-    ax.grid(which='minor', color='white', linestyle='-', linewidth=0.5)
-    for r in range(n):
-        ci = int(np.argmax(attn[r]))
-        rect = plt.Rectangle((ci-0.5, r-0.5), 1, 1, fill=False, edgecolor='white', lw=1.5)
-        ax.add_patch(rect)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).set_label("Attention Weight", rotation=270, labelpad=15)
+    cbar.set_label('Attention Weight', rotation=270, labelpad=15)
+
     plt.tight_layout()
     return fig
