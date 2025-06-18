@@ -50,9 +50,9 @@ def generate_step(
         vals, inds = torch.topk(probs if probs is not None else raw_logits, top_k)
         toks = [tokenizer.decode([i]).strip() for i in inds[0]]
         vals_list = vals[0].tolist()
-        attn = outputs.attentions[-1][0].mean(dim=0).cpu().numpy()
-        # Attentionマップの軸ラベルと行列サイズを合わせるため、出力前シーケンス長のトークンを使用
-        all_toks = [tokenizer.decode([i]).strip() for i in input_ids[0].tolist()]
+        attn = outputs.attentions[-1][0].cpu().numpy()  # shape: (num_heads, seq_len, seq_len)
+
+        all_toks = [tokenizer.decode([i]).strip() for i in new_input_ids[0].tolist()]
 
         return {
             "input_ids": new_input_ids,

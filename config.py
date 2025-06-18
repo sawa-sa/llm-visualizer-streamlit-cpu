@@ -1,6 +1,7 @@
 # 設定ファイル: プロンプトリストやデフォルトパラメータ定義
 DEFAULT_PROMPTS = [
     "Once upon a time, there was a",
+    "Q:What is the capital of France?A:",
     "In the future, artificial intelligence will",
     "The quick brown fox jumps over the",
     "I can't believe that she actually",
