@@ -4,6 +4,11 @@ from config import DEFAULT_PROMPTS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P, DEFAULT_
 from model_loader import load_model
 from generator import generate_step
 from visualizer import plot_topk, plot_attention
+from devinfo import show_device_info
+
+
+device = show_device_info()
+model, tokenizer, device = load_model()
 
 # ─── セッションステートの初期化 ───────────────────────────
 state = st.session_state
@@ -19,20 +24,23 @@ for key, default in [
     if key not in state:
         state[key] = default
 
-# ─── モデルロード ─────────────────────────────────────────
-model, tokenizer = load_model()
-
 # ─── 初期プロンプト自動適用関数 ────────────────────────────
 def init_with_template():
     state.prompt = state.prompt_selector
-    state.input_ids = tokenizer.encode(state.prompt, return_tensors="pt")
+    # state.prompt_input = state.prompt_selector
+    state.input_ids = tokenizer.encode(state.prompt, return_tensors="pt").to(device)
     state.steps = []
     state.step_index = 0
     state.lock_params = False
 
+def on_template_change():
+    state.prompt_input = state.prompt_selector  # テンプレート選択時のみカスタム入力に反映
+    init_with_template()
+
+
 def init_with_custom():
     state.prompt = state.prompt_input
-    state.input_ids = tokenizer.encode(state.prompt, return_tensors="pt")
+    state.input_ids = tokenizer.encode(state.prompt, return_tensors="pt").to(device)
     state.steps = []
     state.step_index = 0
     state.lock_params = False
@@ -57,7 +65,7 @@ st.selectbox(
     index=DEFAULT_PROMPTS.index(state.prompt) if state.prompt in DEFAULT_PROMPTS else 0,
     key="prompt_selector",
     disabled=locked,
-    on_change=init_with_template
+    on_change=on_template_change
 )
 st.text_input(
     "または自分で入力",
@@ -114,7 +122,7 @@ def generate_and_lock():
     prev_sel = state.get(f"head_select_{state.step_index}", "Average")
     result = generate_step(
         state.input_ids, model, tokenizer,
-        temperature, ntop_p, ntop_k
+        temperature, ntop_p, ntop_k, device
     )
     state.input_ids = result["input_ids"]
     state.steps.append(result["step_data"])
@@ -176,7 +184,6 @@ if state.steps:
     sel = st.selectbox(
         "Attention Head",
         options,
-        index=options.index(state.get(key, "Average")),
         key=key
     )
     mat = attn.mean(axis=0) if sel == "Average" else attn[int(sel.split()[1])]

@@ -3,7 +3,6 @@ import torch.nn.functional as F
 from typing import Dict
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
-
 def generate_step(
     input_ids: torch.Tensor,
     model: GPT2LMHeadModel,
@@ -11,12 +10,14 @@ def generate_step(
     temperature: float,
     top_p: float,
     top_k: int,
+    device: torch.device,
 ) -> Dict:
     """
     モデルの次トークンをステップごとに生成し、可視化データを構築する
     Returns a dict with keys: input_ids, step_data
     """
     with torch.no_grad():
+        input_ids = input_ids.to(device)
         outputs = model(input_ids)
         raw_logits = outputs.logits[:, -1, :]
 
