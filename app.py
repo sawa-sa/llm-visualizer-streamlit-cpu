@@ -3,9 +3,9 @@ import streamlit as st
 from config import DEFAULT_PROMPTS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P, DEFAULT_TOP_K
 from model_loader import load_model
 from generator import generate_step
-from visualizer import plot_topk, plot_attention
+from visualizer import plot_topk, plot_attention, plot_logits
 from devinfo import show_device_info
-
+import matplotlib.pyplot as plt
 
 device = show_device_info()
 model, tokenizer, device = load_model()
@@ -108,7 +108,7 @@ st.markdown("---")
 if locked:
     st.info("🔒 パラメータロック中: プロンプト変更で解除")
 elif temperature <= 0.0:
-    st.warning("⚠️ Temperature=0 のため Greedy Decoding")
+    st.warning("⚠️ Temperature=0 のため、Softmaxは使われず最大スコアトークンが選ばれます（argmax動作）")
 elif ntop_p < 1.0:
     st.warning("⚠️ Top-p Mode: Top-K 無効")
 else:
@@ -132,16 +132,43 @@ def generate_and_lock():
     if not explore_mode:
         state.lock_params = True
 
-st.button(
-    "▶️ トークン生成",
-    on_click=generate_and_lock
-)
-
 # ─── ステップナビゲーション & 可視化 ───────────────────────
 if state.steps:
     idx = state.step_index
     step = state.steps[idx]
 
+    # Top-K プロット
+    if temperature <= 0.0:
+        title, limit = "Top-1 (Greedy)", 1
+    elif ntop_p < 1.0:
+        title, limit = f"Top-p (p={ntop_p:.2f})", 10
+    else:
+        title, limit = f"Top-K (k={ntop_k})", ntop_k
+
+    # Logits グラフ（Softmax前のスコア）
+    if temperature > 0.0:
+        fig1 = plot_logits(
+            tokens=step["tokens"],
+            logits=[step["raw_logits"][i] for i in step["ids"]],
+            ids=step["ids"],
+            chosen=step["chosen"],
+            title="Logits (Pre-Softmax Scores)"
+        )
+        st.pyplot(fig1)
+
+    # Softmax 確率グラフ
+    fig2 = plot_topk(
+        tokens=step["tokens"],
+        values=step["values"],
+        ids=step["ids"],
+        chosen=step["chosen"],
+        top_k=limit,
+        temperature=temperature,
+        title=title
+    )
+    st.pyplot(fig2)
+
+    # --- 前へ・次へボタンをここに移動 ---
     c1, _, c3 = st.columns([1, 2, 1])
     c1.button(
         "← 前へ",
@@ -157,38 +184,28 @@ if state.steps:
     )
     st.markdown(f"**Step {idx+1}/{len(state.steps)}**")
 
-    # Top-K プロット
-    if temperature <= 0.0:
-        title, limit = "Top-1 (Greedy)", 1
-    elif ntop_p < 1.0:
-        title, limit = f"Top-p (p={ntop_p:.2f})", 10
-    else:
-        title, limit = f"Top-K (k={ntop_k})", ntop_k
-    fig = plot_topk(
-        tokens=step["tokens"],
-        values=step["values"],
-        ids=step["ids"],
-        chosen=step["chosen"],
-        top_k=limit,
-        temperature=temperature,
-        title=title
-    )
-    chart_ph.pyplot(fig)
-
     # Attention ヒートマップ
     attn = step["attn"]
     if attn.ndim == 2:
         attn = attn[np.newaxis, ...]
     options = ["Average"] + [f"Head {i}" for i in range(attn.shape[0])]
     key = f"head_select_{idx}"
+    mat = attn.mean(axis=0) if state.get(key, "Average") == "Average" else attn[int(state.get(key, "Average").split()[1])]
+    heat_fig = plot_attention(mat, step["all_toks"], title=state.get(key, "Average"))
+
+    st.markdown("#### 🧠 Attention ヒートマップ")
+    st.pyplot(heat_fig)
     sel = st.selectbox(
         "Attention Head",
         options,
         key=key
     )
-    mat = attn.mean(axis=0) if sel == "Average" else attn[int(sel.split()[1])]
-    heat_fig = plot_attention(mat, step["all_toks"], title=sel)
-    heatmap_ph.pyplot(heat_fig, clear_figure=False)
+
+# --- トークン生成ボタンは常にヒートマップの下に表示 ---
+st.button(
+    "▶️ トークン生成",
+    on_click=generate_and_lock
+)
 
 # ─── 最終出力を表示 ───────────────────────────────────────
 # st.markdown("### 🧠 最終アウトプット")

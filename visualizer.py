@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
+from matplotlib.patches import Rectangle
 
 def plot_topk(
     tokens: List[str],
@@ -22,9 +23,35 @@ def plot_topk(
     for i, v in enumerate(values[::-1]):
         label = f"{v:.0f}" if temperature < 1e-5 else f"{v:.2f}"
         offset = (mx - mn) * 0.02 if temperature < 1e-5 else mx * 0.01
-        ax.text(v + offset, i, label, va='center', ha='left', fontsize=8)
+        ax.text(v + offset, i, f"{v:.2f}", va='center', ha='left', fontsize=8)
     if temperature < 1e-5:
         ax.set_xlim(mn - abs(mn) * 0.1, mx + abs(mx) * 0.1)
+    return fig
+
+def plot_logits(
+    tokens: List[str],
+    logits: List[float],
+    ids: List[int],
+    chosen: int,
+    title: str = "Logits（Softmax前のスコア）"
+):
+    """
+    Softmax前のLogitsスコアを棒グラフとして表示する。
+    """
+    fig, ax = plt.subplots(figsize=(6.5, 5))
+    colors = ["#e63946" if i == chosen else "#457b9d" for i in ids]
+    ax.barh(tokens[::-1], logits[::-1], color=list(reversed(colors)))
+    ax.set_title(title)
+    ax.set_xlabel("Score")
+    ax.invert_yaxis()
+
+    # 値ラベルを追加
+    mn, mx = min(logits), max(logits)
+    for i, v in enumerate(logits[::-1]):
+        offset = (mx - mn) * 0.01
+        ax.text(v + offset, i, f"{v:.2f}", va='center', ha='left', fontsize=8)
+
+    ax.set_xlim(mn - abs(mn) * 0.1, mx + abs(mx) * 0.1)
     return fig
 
 def plot_attention(attn: np.ndarray, tokens: List[str], title: str = "Average"):
@@ -72,7 +99,7 @@ def plot_attention(attn: np.ndarray, tokens: List[str], title: str = "Average"):
             ax.text(j, i, f"{val:.2f}", ha='center', va='center', fontsize=6, color=color)
 
     ax.add_patch(
-        plt.Rectangle((-0.5, n - 1.5), n, 1,
+        Rectangle((-0.5, n - 1.5), n, 1,
                       fill=False, edgecolor='cyan', lw=2)
     )
 

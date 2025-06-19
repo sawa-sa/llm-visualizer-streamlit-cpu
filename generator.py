@@ -77,5 +77,6 @@ def generate_step(
                 "chosen": chosen_id,
                 "attn": attn,
                 "all_toks": all_toks,
+                "raw_logits": raw_logits.squeeze().tolist()  # 全トークンに対するスコア
             },
         }
