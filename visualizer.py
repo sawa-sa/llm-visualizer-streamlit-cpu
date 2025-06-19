@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
 from matplotlib.patches import Rectangle
+from generator import generate_step
+from typing import Optional
 
 def plot_topk(
     tokens: List[str],
@@ -10,10 +12,18 @@ def plot_topk(
     chosen: int,
     top_k: int,
     temperature: float,
-    title: str = "Top-K Distribution"
+    title: str = "Top-K Distribution",
+    p_cutoff_index: Optional[int] = None
 ):
     fig, ax = plt.subplots(figsize=(6, 4))
-    colors = ["#e63946" if i == chosen else "#457b9d" for i in ids]
+    colors = []
+    for rank, i in enumerate(ids):
+        if i == chosen:
+            colors.append("#e63946")  # 赤：選ばれたトークン
+        elif p_cutoff_index is not None and rank >= p_cutoff_index:
+            colors.append("#aaaaaa")  # グレー：Top-p外
+        else:
+            colors.append("#457b9d")  # 青：Top-p内
     ax.barh(tokens[::-1], values[::-1], color=list(reversed(colors)))
     xlabel = "Logit Score" if temperature < 1e-5 else "Probability"
     ax.set_title(title)
@@ -33,12 +43,14 @@ def plot_logits(
     logits: List[float],
     ids: List[int],
     chosen: int,
-    title: str = "Logits（Softmax前のスコア）"
+    title: str = "Logits（Softmax前のスコア）",
+    p_cutoff_index: Optional[int] = None,
 ):
     """
     Softmax前のLogitsスコアを棒グラフとして表示する。
     """
     fig, ax = plt.subplots(figsize=(6.5, 5))
+    
     colors = ["#e63946" if i == chosen else "#457b9d" for i in ids]
     ax.barh(tokens[::-1], logits[::-1], color=list(reversed(colors)))
     ax.set_title(title)

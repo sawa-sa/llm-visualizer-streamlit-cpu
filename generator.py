@@ -37,11 +37,13 @@ def generate_step(
                 mask = torch.zeros_like(probs)
                 mask[0, keep] = probs[0, keep]
                 filt = mask / mask.sum()
+                p_cutoff_index = cutoff
             else:
                 tv, ti = torch.topk(probs, top_k)
                 mask = torch.zeros_like(probs)
                 mask[0, ti[0]] = probs[0, ti[0]]
                 filt = mask / mask.sum()
+                p_cutoff_index = top_k
             next_token = torch.multinomial(filt, num_samples=1)
 
         chosen_id = next_token.item()
@@ -77,6 +79,7 @@ def generate_step(
                 "chosen": chosen_id,
                 "attn": attn,
                 "all_toks": all_toks,
+                "p_cutoff_index": p_cutoff_index,
                 "raw_logits": raw_logits.squeeze().tolist()  # 全トークンに対するスコア
             },
         }

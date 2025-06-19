@@ -164,7 +164,8 @@ if state.steps:
         chosen=step["chosen"],
         top_k=limit,
         temperature=temperature,
-        title=title
+        title=title,
+        p_cutoff_index=step.get("p_cutoff_index")
     )
     st.pyplot(fig2)
 
