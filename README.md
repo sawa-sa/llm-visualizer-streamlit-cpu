@@ -26,16 +26,6 @@ GPU環境でのローカル実行を前提としており、モデルは `gpt2-m
 - Python 3.8 以上
 - **CPU 環境のみ対応（GPU 非対応）**
 
-## インストール手順
-```bash
-git clone https://github.com/sawa-sa/llm-visualizer-streamlit.git
-cd llm-visualizer-streamlit
-pip install -r requirements.txt
-# PyTorch のインストール（未導入の場合）
-# 以下のコマンドは CUDA 11.8 対応GPU用です。環境に応じて変更してください：
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-# ※他のCUDAバージョンやCPU版は PyTorch公式サイト を参照してください。
-
 # Streamlitアプリの起動
 streamlit run app.py
 ```
@@ -49,7 +39,6 @@ streamlit run app.py
 
 ## 今後の展望
 
-- CPU 環境への対応
 - `repetition_penalty` パラメータの調整機能の追加
 
 ---
