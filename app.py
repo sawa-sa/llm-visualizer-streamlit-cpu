@@ -26,7 +26,7 @@ for key, default in [
 
 # ─── 初期プロンプト自動適用関数 ────────────────────────────
 def init_with_template():
-    state.prompt = state.prompt_selector
+    state.prompt = state.prompt_selector.strip().replace("\n", " ").replace("\r", "")
     # state.prompt_input = state.prompt_selector
     state.input_ids = tokenizer.encode(state.prompt, return_tensors="pt").to(device)
     state.steps = []
@@ -39,7 +39,7 @@ def on_template_change():
 
 
 def init_with_custom():
-    state.prompt = state.prompt_input
+    state.prompt = state.prompt_input.strip().replace("\n", " ").replace("\r", "")
     state.input_ids = tokenizer.encode(state.prompt, return_tensors="pt").to(device)
     state.steps = []
     state.step_index = 0
@@ -191,5 +191,12 @@ if state.steps:
     heatmap_ph.pyplot(heat_fig, clear_figure=False)
 
 # ─── 最終出力を表示 ───────────────────────────────────────
-st.markdown("### 🧠 最終アウトプット")
-st.write(tokenizer.decode(state.input_ids[0], skip_special_tokens=True))
+# st.markdown("### 🧠 最終アウトプット")
+# st.write(tokenizer.decode(state.input_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=True))
+# 注意: 'Q:' のような記号付き先頭トークンは ['Q', ':', ...] に分割されるため、
+# decode 時に不可視文字（例: U+2028）として復元され、改行に見えることがある。
+# st.text() よりも st.code() での表示が推奨される。
+
+final_text = tokenizer.decode(state.input_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
+final_text = final_text.replace("\n", " ").replace("\r", "").replace("\u2028", " ").replace("\u2029", " ")
+st.text(final_text)

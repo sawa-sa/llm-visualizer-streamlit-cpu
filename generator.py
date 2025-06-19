@@ -49,8 +49,21 @@ def generate_step(
 
         # 可視化用データ作成
         vals, inds = torch.topk(probs if probs is not None else raw_logits, top_k)
-        toks = [tokenizer.decode([i]).strip() for i in inds[0]]
-        vals_list = vals[0].tolist()
+        sorted_vals, sort_idx = vals[0].sort(descending=True)
+        sorted_inds = inds[0][sort_idx]
+
+        def safe_token_label(i):
+            decoded = tokenizer.decode([i])
+            return decoded if decoded.strip() != "" else f"[id {i}]"
+
+        toks = [safe_token_label(i) for i in sorted_inds]
+        vals_list = sorted_vals.tolist()
+        inds = sorted_inds.unsqueeze(0)  # 重要: 他の処理で参照されるため
+
+
+
+
+
         attn = outputs.attentions[-1][0].cpu().numpy()  # shape: (num_heads, seq_len, seq_len)
 
         all_toks = [tokenizer.decode([i]).strip() for i in new_input_ids[0].tolist()]
